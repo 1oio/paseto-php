@@ -12,6 +12,7 @@ use ParagonIE\Paseto\{Exception\ExceptionCode,
     ReceivingKey,
     SendingKey,
     ProtocolInterface,
+    Protocol\Version2,
     Protocol\Version3,
     Protocol\Version4,
     Util};
@@ -49,6 +50,11 @@ class SymmetricKey implements ReceivingKey, SendingKey
         $this->protocol = $protocol ?? new Version4;
 
         switch ($this->protocol::class) {
+            case Version2::class:
+                if (strlen($keyMaterial) !== Version2::SYMMETRIC_KEY_BYTES) {
+                    throw new PasetoException("Invalid key length");
+                }
+                break;
             case Version3::class:
                 if (strlen($keyMaterial) !== Version3::SYMMETRIC_KEY_BYTES) {
                     throw new PasetoException("Invalid key length");
