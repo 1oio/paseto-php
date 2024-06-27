@@ -2,47 +2,48 @@
 declare(strict_types=1);
 namespace ParagonIE\Paseto;
 
+use DateInterval;
 use ParagonIE\Paseto\Exception\{
     EncodingException,
+    ExceptionCode,
     InvalidKeyException,
     InvalidPurposeException,
+    NotFoundException,
     PasetoException
 };
 use ParagonIE\Paseto\Keys\{
     AsymmetricSecretKey,
     SymmetricKey
 };
-use ParagonIE\Paseto\Protocol\Version2;
+use ParagonIE\Paseto\Parsing\NonExpiringSupport;
+use ParagonIE\Paseto\Protocol\Version4;
 use ParagonIE\Paseto\Traits\RegisteredClaims;
+use Closure;
+use DateTime;
+use DateTimeInterface;
+use Throwable;
+use function is_null,
+    is_string,
+    json_decode,
+    json_encode;
 
 /**
  * Class Builder
  * @package ParagonIE\Paseto
  */
-class Builder
+class Builder extends PasetoBase
 {
+    use NonExpiringSupport;
     use RegisteredClaims;
 
-    /** @var string $cached */
-    protected $cached = '';
-
-    /** @var array<string, string> */
-    protected $claims = [];
-
-    /** @var \Closure|null $unitTestEncrypter -- Do not use this. It's for unit testing! */
+    protected string $cached = '';
+    protected string $implicitAssertions = '';
+    /** @var Closure|null $unitTestEncrypter -- Do not use this. It's for unit testing! */
     protected $unitTestEncrypter;
-
-    /** @var SendingKey|null $key */
-    protected $key = null;
-
-    /** @var Purpose|null $purpose */
-    protected $purpose;
-
-    /** @var ProtocolInterface $version */
-    protected $version;
-
-    /** @var JsonToken $token */
-    protected $token;
+    protected ?SendingKey $key = null;
+    protected ?Purpose $purpose = null;
+    protected ProtocolInterface $version;
+    protected JsonToken $token;
 
     /**
      * Builder constructor.
@@ -62,7 +63,7 @@ class Builder
             $baseToken = new JsonToken();
         }
         if (!$protocol) {
-            $protocol = new Version2();
+            $protocol = new Version4();
         }
         $this->token = $baseToken;
         $this->version = $protocol;
@@ -72,24 +73,99 @@ class Builder
     }
 
     /**
+     * Fetch a key (either from $this->key directly, or by its Key ID if we've
+     * stored a KeyRing), then make sure it's an Asymmetric Secret Key.
+     *
+     * @return AsymmetricSecretKey
+     *
+     * @throws InvalidKeyException
+     * @throws NotFoundException
+     * @throws PasetoException
+     */
+    public function fetchSecretKey(): AsymmetricSecretKey
+    {
+        if ($this->key instanceof SendingKeyRing) {
+            $footer = $this->token->getFooterArray();
+            $index = (string) static::KEY_ID_FOOTER_CLAIM;
+            $keyId = (string) ($footer[$index] ?? '');
+            $key = $this->key->fetchKey($keyId);
+        } else {
+            $key = $this->key;
+        }
+        if (!($key instanceof AsymmetricSecretKey)) {
+            throw new InvalidKeyException(
+                "Only symmetric keys can be used for local tokens.",
+                ExceptionCode::PURPOSE_WRONG_FOR_KEY
+            );
+        }
+        return $key;
+    }
+
+    /**
+     * Fetch a key (either from $this->key directly, or by its Key ID if we've
+     * stored a KeyRing), then make sure it's a Symmetric Key.
+     *
+     * @return SymmetricKey
+     *
+     * @throws InvalidKeyException
+     * @throws NotFoundException
+     * @throws PasetoException
+     */
+    public function fetchSymmetricKey(): SymmetricKey
+    {
+        if ($this->key instanceof SendingKeyRing) {
+            $footer = $this->token->getFooterArray();
+            $index = (string) static::KEY_ID_FOOTER_CLAIM;
+            $keyId = (string) ($footer[$index] ?? '');
+            $key = $this->key->fetchKey($keyId);
+        } else {
+            $key = $this->key;
+        }
+        if (!($key instanceof SymmetricKey)) {
+            throw new InvalidKeyException(
+                "Only symmetric keys can be used for local tokens.",
+                ExceptionCode::PURPOSE_WRONG_FOR_KEY
+            );
+        }
+        return $key;
+    }
+
+    /**
      * Get any arbitrary claim.
      *
      * @param string $claim
      * @return mixed
+     *
      * @throws PasetoException
      */
-    public function get(string $claim)
+    public function get(string $claim): mixed
     {
         return $this->token->get($claim);
     }
 
     /**
+     * Get the footer contents as an array.
+     *
      * @return array
+     *
      * @throws PasetoException
      */
     public function getFooterArray(): array
     {
         return $this->token->getFooterArray();
+    }
+
+    /**
+     * Get the implicit assertions configured for this Builder.
+     *
+     * @return array
+     */
+    public function getImplicitAssertions(): array
+    {
+        if (empty($this->implicitAssertions)) {
+            return [];
+        }
+        return (array) json_decode($this->implicitAssertions, true);
     }
 
     /**
@@ -99,8 +175,8 @@ class Builder
      * @param SymmetricKey $key
      * @param ProtocolInterface|null $version
      * @param JsonToken|null $baseToken
+     * @return self
      *
-     * @return Builder
      * @throws PasetoException
      */
     public static function getLocal(
@@ -109,9 +185,35 @@ class Builder
         JsonToken $baseToken = null
     ): self {
         if (!$version) {
-            $version = new Version2();
+            $version = $key->getProtocol();
         }
-        $instance = new static($baseToken);
+        $instance = new self($baseToken);
+        $instance->key = $key;
+        $instance->version = $version;
+        $instance->purpose = Purpose::local();
+        return $instance;
+    }
+
+    /**
+     * Get a Builder instance configured for local usage.
+     * (i.e. shared-key authenticated encryption)
+     *
+     * @param SendingKeyRing $key
+     * @param ProtocolInterface|null $version
+     * @param JsonToken|null $baseToken
+     * @return self
+     *
+     * @throws PasetoException
+     */
+    public static function getLocalWithKeyRing(
+        SendingKeyRing    $key,
+        ProtocolInterface $version = null,
+        JsonToken         $baseToken = null
+    ): self {
+        if (!$version) {
+            $version = $key->getProtocol();
+        }
+        $instance = new self($baseToken);
         $instance->key = $key;
         $instance->version = $version;
         $instance->purpose = Purpose::local();
@@ -125,8 +227,8 @@ class Builder
      * @param AsymmetricSecretKey $key
      * @param ProtocolInterface|null $version
      * @param JsonToken|null $baseToken
+     * @return self
      *
-     * @return Builder
      * @throws PasetoException
      */
     public static function getPublic(
@@ -135,9 +237,35 @@ class Builder
         JsonToken $baseToken = null
     ): self {
         if (!$version) {
-            $version = new Version2();
+            $version = $key->getProtocol();
         }
-        $instance = new static($baseToken);
+        $instance = new self($baseToken);
+        $instance->key = $key;
+        $instance->version = $version;
+        $instance->purpose = Purpose::public();
+        return $instance;
+    }
+
+    /**
+     * Get a Builder instance configured for remote usage.
+     * (i.e. public-key digital signatures)
+     *
+     * @param SendingKeyRing $key
+     * @param ProtocolInterface|null $version
+     * @param JsonToken|null $baseToken
+     * @return self
+     *
+     * @throws PasetoException
+     */
+    public static function getPublicWithKeyRing(
+        SendingKeyRing    $key,
+        ProtocolInterface $version = null,
+        JsonToken         $baseToken = null
+    ): self {
+        if (!$version) {
+            $version = $key->getProtocol();
+        }
+        $instance = new self($baseToken);
         $instance->key = $key;
         $instance->version = $version;
         $instance->purpose = Purpose::public();
@@ -158,11 +286,11 @@ class Builder
      * Set a claim to an arbitrary value.
      *
      * @param string $claim
-     * @param string $value
+     * @param mixed $value
      *
      * @return self
      */
-    public function set(string $claim, $value): self
+    public function set(string $claim, mixed $value): self
     {
         $this->token->set($claim, $value);
         return $this;
@@ -182,29 +310,55 @@ class Builder
     /**
      * Set the 'exp' claim for the token we're building. (Mutable.)
      *
-     * @param \DateTimeInterface|null $time
+     * @param DateTimeInterface|null $time
      * @return self
      */
-    public function setExpiration(\DateTimeInterface $time = null): self
+    public function setExpiration(DateTimeInterface $time = null): self
     {
         if (!$time) {
-            $time = new \DateTime('NOW');
+            $time = new DateTime('NOW');
         }
-        return $this->set('exp', $time->format(\DateTime::ATOM));
+        return $this->set('exp', $time->format(DateTime::ATOM));
+    }
+
+    /**
+     * Set the implicit assertions for the constructed PASETO token
+     * (only affects v3/v4).
+     *
+     * @param array $assertions
+     * @return self
+     *
+     * @throws PasetoException
+     */
+    public function setImplicitAssertions(array $assertions): self
+    {
+        if (empty($assertions)) {
+            $implicit = '';
+        } else {
+            $implicit = json_encode($assertions);
+        }
+        if (!is_string($implicit)) {
+            throw new EncodingException(
+                'Could not serialize as string',
+                ExceptionCode::IMPLICIT_ASSERTION_JSON_ERROR
+            );
+        }
+        $this->implicitAssertions = $implicit;
+        return $this;
     }
 
     /**
      * Set the 'iat' claim for the token we're building. (Mutable.)
      *
-     * @param \DateTimeInterface|null $time
+     * @param DateTimeInterface|null $time
      * @return self
      */
-    public function setIssuedAt(\DateTimeInterface $time = null): self
+    public function setIssuedAt(DateTimeInterface $time = null): self
     {
         if (!$time) {
-            $time = new \DateTime('NOW');
+            $time = new DateTime('NOW');
         }
-        return $this->set('iat', $time->format(\DateTime::ATOM));
+        return $this->set('iat', $time->format(DateTimeInterface::ATOM));
     }
 
     /**
@@ -232,15 +386,15 @@ class Builder
     /**
      * Set the 'nbf' claim for the token we're building. (Mutable.)
      *
-     * @param \DateTimeInterface|null $time
+     * @param DateTimeInterface|null $time
      * @return self
      */
-    public function setNotBefore(\DateTimeInterface $time = null): self
+    public function setNotBefore(DateTimeInterface $time = null): self
     {
         if (!$time) {
-            $time = new \DateTime('NOW');
+            $time = new DateTime('NOW');
         }
-        return $this->set('nbf', $time->format(\DateTime::ATOM));
+        return $this->set('nbf', $time->format(DateTimeInterface::ATOM));
     }
 
     /**
@@ -257,7 +411,7 @@ class Builder
     /**
      * Set an array of claims in one go.
      *
-     * @param array<string, string> $claims
+     * @param array<string, mixed> $claims
      * @return self
      */
     public function setClaims(array $claims): self
@@ -285,13 +439,17 @@ class Builder
      *
      * @param array $footer
      * @return self
+     *
      * @throws PasetoException
      */
     public function setFooterArray(array $footer = []): self
     {
-        $encoded = \json_encode($footer);
-        if (!\is_string($encoded)) {
-            throw new EncodingException('Could not encode array into JSON');
+        $encoded = json_encode($footer);
+        if (!is_string($encoded)) {
+            throw new EncodingException(
+                'Could not encode array into JSON',
+                ExceptionCode::FOOTER_JSON_ERROR
+            );
         }
         return $this->setFooter($encoded);
     }
@@ -303,19 +461,29 @@ class Builder
      * @param SendingKey $key
      * @param bool $checkPurpose
      * @return self
+     *
      * @throws PasetoException
      */
     public function setKey(SendingKey $key, bool $checkPurpose = false): self
     {
+        if ($key instanceof SendingKeyRing) {
+            /** We'll need to do more checks at build time {@link toString()} */
+            $this->key = $key;
+            return $this;
+        }
         if ($checkPurpose) {
             if (is_null($this->purpose)) {
-                throw new InvalidKeyException('Unknown purpose');
+                throw new InvalidKeyException(
+                    'Unknown purpose',
+                    ExceptionCode::PURPOSE_NOT_DEFINED
+                );
             } elseif (!$this->purpose->isSendingKeyValid($key)) {
                 throw new InvalidKeyException(
                     'Invalid key type. Expected ' .
                         $this->purpose->expectedSendingKeyType() .
                         ', got ' .
-                        \get_class($key)
+                        get_class($key),
+                    ExceptionCode::PASETO_KEY_TYPE_ERROR
                 );
             }
             switch ($this->purpose) {
@@ -332,7 +500,10 @@ class Builder
                     }
                     break;
                 default:
-                    throw new InvalidKeyException('Unknown purpose');
+                    throw new InvalidKeyException(
+                        'Unknown purpose',
+                        ExceptionCode::PURPOSE_NOT_LOCAL_OR_PUBLIC
+                    );
             }
         }
 
@@ -348,20 +519,32 @@ class Builder
      * @param Purpose $purpose
      * @param bool $checkKeyType
      * @return self
+     *
      * @throws InvalidKeyException
      * @throws InvalidPurposeException
      */
     public function setPurpose(Purpose $purpose, bool $checkKeyType = false): self
     {
+        if ($this->key instanceof SendingKeyRing) {
+            /** We'll need to do more checks at build time {@link toString()} */
+            $this->cached = '';
+            $this->purpose = $purpose;
+            return $this;
+        }
         if ($checkKeyType) {
-            if (\is_null($this->key)) {
-                throw new InvalidKeyException('Key cannot be null');
+            if (is_null($this->key)) {
+                throw new InvalidKeyException(
+                    'Key cannot be null',
+                    ExceptionCode::PASETO_KEY_IS_NULL
+                );
             }
             $expectedPurpose = Purpose::fromSendingKey($this->key);
             if (!$purpose->equals($expectedPurpose)) {
                 throw new InvalidPurposeException(
-                    'Invalid purpose. Expected '.$expectedPurpose->rawString()
-                    .', got ' . $purpose->rawString()
+                    'Invalid purpose. Expected ' .
+                        $expectedPurpose->rawString() .
+                        ', got ' . $purpose->rawString(),
+                    ExceptionCode::PURPOSE_WRONG_FOR_KEY
                 );
             }
         }
@@ -394,7 +577,7 @@ class Builder
     public function setVersion(ProtocolInterface $version = null): self
     {
         if (!$version) {
-            $version = new Version2();
+            $version = new Version4();
         }
         $this->version = $version;
         return $this;
@@ -404,76 +587,105 @@ class Builder
      * Get the token as a string.
      *
      * @return string
+     *
      * @throws PasetoException
-     * @psalm-suppress MixedInferredReturnType
      */
     public function toString(): string
     {
         if (!empty($this->cached)) {
             return $this->cached;
         }
-        if (\is_null($this->key)) {
-            throw new InvalidKeyException('Key cannot be null');
+        if (is_null($this->key)) {
+            throw new InvalidKeyException(
+                'Key cannot be null',
+                ExceptionCode::PASETO_KEY_IS_NULL
+            );
         }
-        if (\is_null($this->purpose)) {
-            throw new InvalidPurposeException('Purpose cannot be null');
+        if (is_null($this->purpose)) {
+            throw new InvalidPurposeException(
+                'Purpose cannot be null',
+                ExceptionCode::PURPOSE_NOT_DEFINED
+            );
         }
         // Mutual sanity checks
         $this->setKey($this->key, true);
         $this->setPurpose($this->purpose, true);
 
-        $claims = \json_encode($this->token->getClaims(), JSON_FORCE_OBJECT);
+        $claimsArray = $this->token->getClaims();
+
+        // PASETO tokens expire by default (unless otherwise specified).
+        if (!$this->nonExpiring && !array_key_exists('exp', $claimsArray)) {
+            $claimsArray['exp'] = (new DateTime('NOW'))
+                ->add(new DateInterval('PT01H'))
+                ->format(DateTime::ATOM);
+        }
+        $claims = json_encode($claimsArray, JSON_FORCE_OBJECT);
         $protocol = $this->version;
         ProtocolCollection::throwIfUnsupported($protocol);
+
+        $implicit = '';
+        if (!empty($this->implicitAssertions)) {
+            if (!$protocol::supportsImplicitAssertions()) {
+                throw new PasetoException(
+                    'This version does not support implicit assertions',
+                    ExceptionCode::IMPLICIT_ASSERTION_NOT_SUPPORTED
+                );
+            }
+            $implicit = $this->implicitAssertions;
+        }
         switch ($this->purpose) {
             case Purpose::local():
-                if ($this->key instanceof SymmetricKey) {
-                    /**
-                     * During unit tests, perform last-minute dependency
-                     * injection to swap $protocol for a conjured up version.
-                     * This new version can access a protected method on our
-                     * actual $protocol, giving unit tests the ability to
-                     * manually set a pre-decided nonce.
-                     */
-                    if (isset($this->unitTestEncrypter)) {
-                        /** @var ProtocolInterface */
-                        $protocol = ($this->unitTestEncrypter)($protocol);
-                    }
-
-                    $this->cached = (string) $protocol::encrypt(
+                $key = $this->fetchSymmetricKey();
+                /**
+                 * During unit tests, perform last-minute dependency
+                 * injection to swap $protocol for a conjured up version.
+                 * This new version can access a protected method on our
+                 * actual $protocol, giving unit tests the ability to
+                 * manually set a pre-decided nonce.
+                 */
+                if (isset($this->unitTestEncrypter)) {
+                    /** @var ProtocolInterface */
+                    $protocol = ($this->unitTestEncrypter)($protocol);
+                }
+                $this->cached = $protocol::encrypt(
+                    $claims,
+                    $key,
+                    $this->token->getFooter(),
+                    $implicit
+                );
+                return $this->cached;
+            case Purpose::public():
+                $key = $this->fetchSecretKey();
+                try {
+                    $this->cached = $protocol::sign(
                         $claims,
-                        $this->key,
-                        $this->token->getFooter()
+                        $key,
+                        $this->token->getFooter(),
+                        $implicit
                     );
                     return $this->cached;
+                } catch (Throwable $ex) {
+                    throw new PasetoException(
+                        'Signing failed.',
+                        ExceptionCode::UNSPECIFIED_CRYPTOGRAPHIC_ERROR,
+                        $ex
+                    );
                 }
-                break;
-            case Purpose::public():
-                if ($this->key instanceof AsymmetricSecretKey) {
-                    try {
-                        $this->cached = (string) $protocol::sign(
-                            $claims,
-                            $this->key,
-                            $this->token->getFooter()
-                        );
-                        return $this->cached;
-                    } catch (\Throwable $ex) {
-                        throw new PasetoException('Signing failed.', 0, $ex);
-                    }
-                }
-                break;
         }
-        throw new PasetoException('Unsupported key/purpose pairing.');
+        throw new PasetoException(
+            'Unsupported key/purpose pairing.',
+            ExceptionCode::PURPOSE_WRONG_FOR_KEY
+        );
     }
 
     /**
      * Return a new Builder instance with a changed claim.
      *
      * @param string $claim
-     * @param string $value
+     * @param mixed $value
      * @return self
      */
-    public function with(string $claim, $value): self
+    public function with(string $claim, mixed $value): self
     {
         $cloned = clone $this;
         $cloned->cached = '';
@@ -495,7 +707,7 @@ class Builder
     /**
      * Return a new Builder instance with an array of changed claims.
      *
-     * @param array<string, string> $claims
+     * @param array<string, mixed> $claims
      * @return self
      */
     public function withClaims(array $claims): self
@@ -506,10 +718,10 @@ class Builder
     /**
      * Return a new Builder instance with a changed 'exp' claim.
      *
-     * @param \DateTimeInterface|null $time
+     * @param DateTimeInterface|null $time
      * @return self
      */
-    public function withExpiration(\DateTimeInterface $time = null): self
+    public function withExpiration(DateTimeInterface $time = null): self
     {
         return (clone $this)->setExpiration($time);
     }
@@ -539,12 +751,26 @@ class Builder
     }
 
     /**
+     * Return a new Builder instance with changed implicit assertions
+     * for the constructed PASETO token (only affects v3/v4).
+     *
+     * @param array $implicit
+     * @return self
+     *
+     * @throws PasetoException
+     */
+    public function withImplicitAssertions(array $implicit): self
+    {
+        return (clone $this)->setImplicitAssertions($implicit);
+    }
+
+    /**
      * Return a new Builder instance with a changed 'iat' claim.
      *
-     * @param \DateTimeInterface|null $time
+     * @param DateTimeInterface|null $time
      * @return self
      */
-    public function withIssuedAt(\DateTimeInterface $time = null): self
+    public function withIssuedAt(DateTimeInterface $time = null): self
     {
         return (clone $this)->setIssuedAt($time);
     }
@@ -574,10 +800,10 @@ class Builder
     /**
      * Return a new Builder instance with a changed 'nbf' claim.
      *
-     * @param \DateTimeInterface|null $time
+     * @param DateTimeInterface|null $time
      * @return self
      */
-    public function withNotBefore(\DateTimeInterface $time = null): self
+    public function withNotBefore(DateTimeInterface $time = null): self
     {
         return (clone $this)->setNotBefore($time);
     }
@@ -600,6 +826,7 @@ class Builder
      * @param SendingKey $key
      * @param bool $checkPurpose
      * @return self
+     *
      * @throws PasetoException
      */
     public function withKey(SendingKey $key, bool $checkPurpose = false): self
@@ -615,6 +842,7 @@ class Builder
      * @param Purpose $purpose
      * @param bool $checkKeyType
      * @return self
+     *
      * @throws InvalidKeyException
      * @throws InvalidPurposeException
      */
@@ -627,8 +855,7 @@ class Builder
      * Return a new Builder instance with the specified JsonToken object.
      *
      * @param JsonToken $token
-     *
-     * @return Builder
+     * @return self
      */
     public function withJsonToken(JsonToken $token): self
     {
@@ -647,13 +874,10 @@ class Builder
 
     /**
      * @return string
+     * @throws PasetoException
      */
     public function __toString()
     {
-        try {
-            return $this->toString();
-        } catch (\Throwable $ex) {
-            return '';
-        }
+        return $this->toString();
     }
 }

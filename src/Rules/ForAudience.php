@@ -7,6 +7,7 @@ use ParagonIE\Paseto\{
     ValidationRuleInterface
 };
 use ParagonIE\Paseto\Exception\PasetoException;
+use function hash_equals;
 
 /**
  * Class ForAudience
@@ -14,11 +15,8 @@ use ParagonIE\Paseto\Exception\PasetoException;
  */
 class ForAudience implements ValidationRuleInterface
 {
-    /** @var string $failure */
-    protected $failure = 'OK';
-
-    /** @var string $issuer */
-    protected $audience;
+    protected string $failure = 'OK';
+    protected string $audience;
 
     /**
      * ForAudience constructor.
@@ -38,6 +36,8 @@ class ForAudience implements ValidationRuleInterface
     }
 
     /**
+     * Does the 'aud' claim match what we expect from the Parser?
+     *
      * @param JsonToken $token
      * @return bool
      */
@@ -45,7 +45,7 @@ class ForAudience implements ValidationRuleInterface
     {
         try {
             $audience = $token->getAudience();
-            if (!\hash_equals($this->audience, $audience)) {
+            if (!hash_equals($this->audience, $audience)) {
                 $this->failure = 'This token is not intended for ' .
                     $this->audience . ' (expected); instead, it is intended for ' .
                     $audience . ' instead.';

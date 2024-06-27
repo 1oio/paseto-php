@@ -2,11 +2,21 @@
 declare(strict_types=1);
 namespace ParagonIE\Paseto;
 
-use ParagonIE\Paseto\Exception\SecurityException;
-use ParagonIE\Paseto\Protocol\{
-    Version2
+use ParagonIE\Paseto\Exception\{
+    ExceptionCode,
+    InvalidVersionException,
+    SecurityException
 };
-use ParagonIE\Paseto\Exception\InvalidVersionException;
+use ParagonIE\Paseto\Protocol\{
+    Version3,
+    Version4
+};
+use function array_key_exists,
+    array_map,
+    get_class,
+    in_array;
+use LogicException;
+use TypeError;
 
 /**
  * Class ProtocolCollection
@@ -15,31 +25,37 @@ use ParagonIE\Paseto\Exception\InvalidVersionException;
 final class ProtocolCollection
 {
     /**
-     * Our built-in whitelist of protocol types is defined here.
+     * Our built-in allow-list of protocol types is defined here.
+     *
      * @const array<int, class-string<ProtocolInterface>>
+     * @var array<int, class-string<ProtocolInterface>>
      */
-    const WHITELIST = [
-        Version2::class,
+    const ALLOWED = [
+        Version3::class,
+        Version4::class,
     ];
 
-    /** @var array<int, ProtocolInterface> */
-    private $protocols;
+    /** @var array<array-key, ProtocolInterface> */
+    private array $protocols;
 
     /** @var array<string, ProtocolInterface> */
-    private static $headerLookup = [];
+    private static array $headerLookup = [];
 
     /**
      * @param ProtocolInterface ...$protocols
-     * @throws \LogicException
+     *
+     * @throws LogicException
      * @throws InvalidVersionException
      */
     public function __construct(ProtocolInterface ...$protocols)
     {
         if (empty($protocols)) {
-            throw new \LogicException('At least one version is necessary');
+            throw new LogicException(
+                'At least one version is necessary',
+                ExceptionCode::BAD_VERSION
+            );
         }
 
-        /** @var ProtocolInterface $protocol */
         foreach ($protocols as $protocol) {
             self::throwIfUnsupported($protocol);
         }
@@ -55,7 +71,7 @@ final class ProtocolCollection
      */
     public function has(ProtocolInterface $protocol): bool
     {
-        return \in_array($protocol, $this->protocols);
+        return in_array($protocol, $this->protocols);
     }
 
     /**
@@ -66,41 +82,53 @@ final class ProtocolCollection
      */
     public static function isValid(ProtocolInterface $protocol): bool
     {
-        return \in_array(\get_class($protocol), self::WHITELIST, true);
+        return in_array(get_class($protocol), self::ALLOWED, true);
     }
 
     /**
      * Throws if the given protocol is unsupported
      *
      * @param ProtocolInterface $protocol
-     * @throws InvalidVersionException
      * @return void
+     *
+     * @throws InvalidVersionException
      */
     public static function throwIfUnsupported(ProtocolInterface $protocol)
     {
         if (!self::isValid($protocol)) {
             throw new InvalidVersionException(
-                'Unsupported version: ' . $protocol::header()
+                'Unsupported version: ' . $protocol::header(),
+                ExceptionCode::BAD_VERSION
             );
         }
     }
 
     /**
+     * Return the PASETO protocol version for a given header snippet
+     *
      * @param string $headerPart
+     *
      * @return ProtocolInterface
      * @throws InvalidVersionException
-     * @psalm-suppress UndefinedClass  A BC break introduced in Psalm v1.0.2
-     *                                 stopped respecting what we were doing.
      */
     public static function protocolFromHeaderPart(string $headerPart): ProtocolInterface {
         if (empty(self::$headerLookup)) {
-            foreach (self::WHITELIST as $protocolClass) {
+            foreach (self::ALLOWED as $protocolClass) {
+                if (!method_exists($protocolClass, 'header')) {
+                    throw new TypeError(
+                        "Object {$protocolClass} does not have a header() method",
+                        ExceptionCode::IMPOSSIBLE_CONDITION
+                    );
+                }
                 self::$headerLookup[$protocolClass::header()] = new $protocolClass;
             }
         }
 
-        if (!\array_key_exists($headerPart, self::$headerLookup)) {
-            throw new InvalidVersionException('Disallowed or unsupported version');
+        if (!array_key_exists($headerPart, self::$headerLookup)) {
+            throw new InvalidVersionException(
+                'Disallowed or unsupported version',
+                ExceptionCode::BAD_VERSION
+            );
         }
 
         return self::$headerLookup[$headerPart];
@@ -110,17 +138,16 @@ final class ProtocolCollection
      * Get a collection of all supported protocols
      *
      * @return self
+     *
      * @throws InvalidVersionException
      */
     public static function default(): self
     {
-        return new self(...\array_map(
+        return new self(...array_map(
             function (string $p): ProtocolInterface {
-                /** @var ProtocolInterface */
-                $protocol = new $p;
-                return $protocol;
+                return new $p;
             },
-            self::WHITELIST
+            self::ALLOWED
         ));
     }
 
@@ -128,22 +155,52 @@ final class ProtocolCollection
      * Get a collection containing protocol version 1.
      *
      * @return self
+     *
      * @throws InvalidVersionException
      * @throws SecurityException
+     *
+     * @deprecated See Version3 instead.
      */
     public static function v1(): self
     {
-        return new self(new Version2);
+        throw new InvalidVersionException("Version 1 was removed", ExceptionCode::OBSOLETE_PROTOCOL);
     }
 
     /**
      * Get a collection containing protocol version 2.
      *
      * @return self
+     *
      * @throws InvalidVersionException
+     *
+     * @deprecated See Version4 instead.
      */
     public static function v2(): self
     {
-        return new self(new Version2);
+        throw new InvalidVersionException("Version 2 was removed", ExceptionCode::OBSOLETE_PROTOCOL);
+    }
+
+    /**
+     * Get a collection containing protocol version 3.
+     *
+     * @return self
+     *
+     * @throws InvalidVersionException
+     */
+    public static function v3(): self
+    {
+        return new self(new Version3);
+    }
+
+    /**
+     * Get a collection containing protocol version 4.
+     *
+     * @return self
+     *
+     * @throws InvalidVersionException
+     */
+    public static function v4(): self
+    {
+        return new self(new Version4);
     }
 }

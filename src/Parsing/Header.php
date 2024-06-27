@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace ParagonIE\Paseto\Parsing;
 
 use ParagonIE\Paseto\{
+    Exception\ExceptionCode,
     Exception\InvalidPurposeException,
     Exception\InvalidVersionException,
     Exception\SecurityException,
@@ -10,6 +11,7 @@ use ParagonIE\Paseto\{
     ProtocolCollection,
     Purpose
 };
+use function count, explode;
 
 /**
  * Class Header
@@ -17,15 +19,8 @@ use ParagonIE\Paseto\{
  */
 final class Header
 {
-    /**
-     * @var ProtocolInterface
-     */
-    private $protocol;
-
-    /**
-     * @var Purpose
-     */
-    private $purpose;
+    private ProtocolInterface $protocol;
+    private Purpose $purpose;
 
     /**
      * Validate message header strings
@@ -33,8 +28,8 @@ final class Header
      * @param string $protocol      Tainted user-provided string.
      * @param string $purpose      Tainted user-provided string.
      *
-     * @throws InvalidVersionException
      * @throws InvalidPurposeException
+     * @throws InvalidVersionException
      */
     public function __construct(string $protocol, string $purpose)
     {
@@ -47,16 +42,19 @@ final class Header
      *
      * @param string $tainted      Tainted user-provided string.
      * @return self
+     *
      * @throws SecurityException
      */
     public static function fromString(string $tainted): self
     {
-        /** @var array<int, string> $pieces */
-        $pieces = \explode('.', $tainted);
-        $count = \count($pieces);
+        $pieces = explode('.', $tainted);
+        $count = count($pieces);
         if ($count !== 3 or $pieces[2] !== '') {
             // we expect "version.purpose." format
-            throw new SecurityException('Truncated or invalid header');
+            throw new SecurityException(
+                'Truncated or invalid header',
+                ExceptionCode::INVALID_HEADER
+            );
         }
 
         return new Header($pieces[0], $pieces[1]);
@@ -74,8 +72,7 @@ final class Header
 
     public function toString(): string
     {
-        return $this->protocol->header() . "."
-            . $this->purpose->rawString() . "."
-        ;
+        return $this->protocol->header() . '.' .
+            $this->purpose->rawString() . '.';
     }
 }

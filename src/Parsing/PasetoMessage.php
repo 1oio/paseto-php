@@ -4,10 +4,13 @@ namespace ParagonIE\Paseto\Parsing;
 
 use ParagonIE\ConstantTime\Base64UrlSafe;
 use ParagonIE\Paseto\Exception\{
+    ExceptionCode,
     SecurityException,
     InvalidVersionException,
     InvalidPurposeException
 };
+use TypeError;
+use function count, explode;
 
 /**
  * Class PasetoMessage
@@ -15,14 +18,9 @@ use ParagonIE\Paseto\Exception\{
  */
 final class PasetoMessage
 {
-    /** @var Header */
-    private $header;
-
-    /** @var string */
-    private $payload;
-
-    /** @var string */
-    private $footer;
+    private Header $header;
+    private string $payload;
+    private string $footer;
 
     /**
      * PasetoMessage constructor.
@@ -44,23 +42,25 @@ final class PasetoMessage
      * @param string $tainted      Tainted user-provided string.
      * @return self
      *
-     * @throws SecurityException
      * @throws InvalidVersionException
      * @throws InvalidPurposeException
-     * @throws \TypeError
+     * @throws SecurityException
+     * @throws TypeError
      */
     public static function fromString(string $tainted): self
     {
-        /** @var array<int, string> $pieces */
-        $pieces = \explode('.', $tainted);
-        $count = \count($pieces);
+        $pieces = explode('.', $tainted);
+        $count = count($pieces);
         if ($count < 3 || $count > 4) {
-            throw new SecurityException('Truncated or invalid token');
+            throw new SecurityException(
+                'Truncated or invalid token',
+                ExceptionCode::INVALID_NUMBER_OF_PIECES
+            );
         }
 
         $header = new Header($pieces[0], $pieces[1]);
-        $payload = Base64UrlSafe::decode($pieces[2]);
-        $footer = $count > 3 ? Base64UrlSafe::decode($pieces[3]) : '';
+        $payload = Base64UrlSafe::decodeNoPadding($pieces[2]);
+        $footer = $count > 3 ? Base64UrlSafe::decodeNoPadding($pieces[3]) : '';
 
         return new self($header, $payload, $footer);
     }
@@ -82,18 +82,17 @@ final class PasetoMessage
 
     /**
      * @return string
-     * @throws \TypeError
+     * @throws TypeError
      */
     public function toString(): string
     {
-        $message =  $this->header->toString()
-            . Base64UrlSafe::encodeUnpadded($this->payload)
-        ;
+        $message =  $this->header->toString() .
+            Base64UrlSafe::encodeUnpadded($this->payload);
 
         if ($this->footer === '') {
             return $message;
         }
 
-        return $message . "." . Base64UrlSafe::encodeUnpadded($this->footer);
+        return $message . '.' . Base64UrlSafe::encodeUnpadded($this->footer);
     }
 }

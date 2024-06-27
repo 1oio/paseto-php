@@ -7,6 +7,9 @@ use ParagonIE\Paseto\{
     ValidationRuleInterface
 };
 use ParagonIE\Paseto\Exception\PasetoException;
+use Exception;
+use DateTime;
+use DateTimeInterface;
 
 /**
  * Class NotExpired
@@ -14,20 +17,17 @@ use ParagonIE\Paseto\Exception\PasetoException;
  */
 class NotExpired implements ValidationRuleInterface
 {
-    /** @var string $failure */
-    protected $failure = 'OK';
-
-    /** @var \DateTimeInterface $now */
-    protected $now;
+    protected string $failure = 'OK';
+    protected DateTimeInterface $now;
 
     /**
      * NotExpired constructor.
-     * @param \DateTimeInterface|null $now Allows "now" to be overwritten for unit testing
+     * @param DateTimeInterface|null $now Allows "now" to be overwritten for unit testing
      */
-    public function __construct(\DateTimeInterface $now = null)
+    public function __construct(DateTimeInterface $now = null)
     {
         if (!$now) {
-            $now = new \DateTime();
+            $now = new DateTime();
         }
         $this->now = $now;
     }
@@ -40,8 +40,13 @@ class NotExpired implements ValidationRuleInterface
     }
 
     /**
+     * Does the 'exp' claim match what we expect from the Parser
+     * (i.e. not the future)?
+     *
      * @param JsonToken $token
      * @return bool
+     *
+     * @throws Exception
      */
     public function isValid(JsonToken $token): bool
     {

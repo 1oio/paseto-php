@@ -2,20 +2,12 @@
 <psalm
     name="Paseto Static Analysis"
     useDocblockTypes="true"
-    totallyTyped="true"
 >
     <projectFiles>
         <directory name="src" />
+        <ignoreFiles>
+            <directory name="tests" />
+            <directory name="vendor" />
+        </ignoreFiles>
     </projectFiles>
-    <issueHandlers>
-        <LessSpecificReturnStatement errorLevel="info" />
-        <MoreSpecificReturnType errorLevel="info" />
-        <UnsafeInstantiation errorLevel="info" />
-        <RedundantCast errorLevel="info" />
-        <InternalMethod>
-            <errorLevel type="suppress">
-                <referencedMethod name="ParagonIE_Sodium_Core_Util::store64_le" />
-            </errorLevel>
-        </InternalMethod>
-    </issueHandlers>
 </psalm>

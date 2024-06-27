@@ -4,10 +4,19 @@ namespace ParagonIE\Paseto;
 
 use ParagonIE\Paseto\Exception\{
     EncodingException,
+    ExceptionCode,
     NotFoundException,
     PasetoException
 };
 use ParagonIE\Paseto\Traits\RegisteredClaims;
+use Exception;
+use DateTime;
+use DateTimeInterface;
+use function array_key_exists,
+    is_array,
+    is_string,
+    json_decode,
+    json_encode;
 
 /**
  * Class JsonToken
@@ -17,11 +26,11 @@ class JsonToken
 {
     use RegisteredClaims;
 
-    /** @var array<string, string> */
-    protected $claims = [];
+    /** @var array<string, mixed> */
+    protected array $claims = [];
 
     /** @var string $footer */
-    protected $footer = '';
+    protected string $footer = '';
 
     /**
      * @param Builder $builder
@@ -38,20 +47,25 @@ class JsonToken
      *
      * @param string $claim
      * @return mixed
+     *
      * @throws PasetoException
      */
-    public function get(string $claim)
+    public function get(string $claim): mixed
     {
-        if (\array_key_exists($claim, $this->claims)) {
+        if (array_key_exists($claim, $this->claims)) {
             return $this->claims[$claim];
         }
-        throw new NotFoundException('Claim not found: ' . $claim);
+        throw new NotFoundException(
+            'Claim not found: ' . $claim,
+            ExceptionCode::SPECIFIED_CLAIM_NOT_FOUND
+        );
     }
 
     /**
      * Get the 'aud' claim.
      *
      * @return string
+     *
      * @throws PasetoException
      */
     public function getAudience(): string
@@ -60,7 +74,7 @@ class JsonToken
     }
 
     /**
-     * Get all of the claims stored in this Paseto.
+     * Get all the claims stored in this Paseto.
      *
      * @return array
      */
@@ -72,12 +86,14 @@ class JsonToken
     /**
      * Get the 'exp' claim.
      *
-     * @return \DateTime
+     * @return DateTime
+     *
+     * @throws Exception
      * @throws PasetoException
      */
-    public function getExpiration(): \DateTime
+    public function getExpiration(): DateTime
     {
-        return new \DateTime((string) $this->get('exp'));
+        return new DateTime((string) $this->get('exp'));
     }
 
     /**
@@ -94,14 +110,18 @@ class JsonToken
      * Get the footer as an array. Assumes JSON.
      *
      * @return array
+     *
      * @throws PasetoException
      */
     public function getFooterArray(): array
     {
         /** @var array|bool $decoded */
-        $decoded = \json_decode($this->footer, true);
-        if (!\is_array($decoded)) {
-            throw new EncodingException('Footer is not a valid JSON document');
+        $decoded = json_decode($this->footer, true);
+        if (!is_array($decoded)) {
+            throw new EncodingException(
+                'Footer is not a valid JSON object',
+                ExceptionCode::FOOTER_JSON_ERROR
+            );
         }
         return $decoded;
     }
@@ -109,18 +129,21 @@ class JsonToken
     /**
      * Get the 'iat' claim.
      *
-     * @return \DateTime
+     * @return DateTime
+     *
+     * @throws Exception
      * @throws PasetoException
      */
-    public function getIssuedAt(): \DateTime
+    public function getIssuedAt(): DateTime
     {
-        return new \DateTime((string) $this->get('iat'));
+        return new DateTime((string) $this->get('iat'));
     }
 
     /**
      * Get the 'iss' claim.
      *
      * @return string
+     *
      * @throws PasetoException
      */
     public function getIssuer(): string
@@ -132,6 +155,7 @@ class JsonToken
      * Get the 'jti' claim.
      *
      * @return string
+     *
      * @throws PasetoException
      */
     public function getJti(): string
@@ -142,12 +166,14 @@ class JsonToken
     /**
      * Get the 'nbf' claim.
      *
-     * @return \DateTime
+     * @return DateTime
+     *
+     * @throws Exception
      * @throws PasetoException
      */
-    public function getNotBefore(): \DateTime
+    public function getNotBefore(): DateTime
     {
-        return new \DateTime((string) $this->get('nbf'));
+        return new DateTime((string) $this->get('nbf'));
     }
 
     /**
@@ -165,7 +191,7 @@ class JsonToken
      * Set a claim to an arbitrary value.
      *
      * @param string $claim
-     * @param string $value
+     * @param mixed $value
      * @return self
      */
     public function set(string $claim, $value): self
@@ -189,7 +215,7 @@ class JsonToken
     /**
      * Set an array of claims in one go.
      *
-     * @param array<string, string> $claims
+     * @param array<string, mixed> $claims
      * @return self
      */
     public function setClaims(array $claims): self
@@ -201,15 +227,15 @@ class JsonToken
     /**
      * Set the 'exp' claim.
      *
-     * @param \DateTimeInterface|null $time
+     * @param DateTimeInterface|null $time
      * @return self
      */
-    public function setExpiration(\DateTimeInterface $time = null): self
+    public function setExpiration(DateTimeInterface $time = null): self
     {
         if (!$time) {
-            $time = new \DateTime('NOW');
+            $time = new DateTime('NOW');
         }
-        $this->claims['exp'] = $time->format(\DateTime::ATOM);
+        $this->claims['exp'] = $time->format(DateTime::ATOM);
         return $this;
     }
 
@@ -234,9 +260,12 @@ class JsonToken
      */
     public function setFooterArray(array $footer = []): self
     {
-        $encoded = \json_encode($footer);
-        if (!\is_string($encoded)) {
-            throw new EncodingException('Could not encode array into JSON');
+        $encoded = json_encode($footer);
+        if (!is_string($encoded)) {
+            throw new EncodingException(
+                'Could not encode array into JSON',
+                ExceptionCode::FOOTER_JSON_ERROR
+            );
         }
         return $this->setFooter($encoded);
     }
@@ -244,15 +273,15 @@ class JsonToken
     /**
      * Set the 'iat' claim.
      *
-     * @param \DateTimeInterface|null $time
+     * @param DateTimeInterface|null $time
      * @return self
      */
-    public function setIssuedAt(\DateTimeInterface $time = null): self
+    public function setIssuedAt(DateTimeInterface $time = null): self
     {
         if (!$time) {
-            $time = new \DateTime('NOW');
+            $time = new DateTime('NOW');
         }
-        $this->claims['iat'] = $time->format(\DateTime::ATOM);
+        $this->claims['iat'] = $time->format(DateTime::ATOM);
         return $this;
     }
 
@@ -283,15 +312,15 @@ class JsonToken
     /**
      * Set the 'nbf' claim.
      *
-     * @param \DateTimeInterface|null $time
+     * @param DateTimeInterface|null $time
      * @return self
      */
-    public function setNotBefore(\DateTimeInterface $time = null): self
+    public function setNotBefore(DateTimeInterface $time = null): self
     {
         if (!$time) {
-            $time = new \DateTime('NOW');
+            $time = new DateTime('NOW');
         }
-        $this->claims['nbf'] = $time->format(\DateTime::ATOM);
+        $this->claims['nbf'] = $time->format(DateTime::ATOM);
         return $this;
     }
 
@@ -311,7 +340,7 @@ class JsonToken
      * Return a new JsonToken instance with a changed claim.
      *
      * @param string $claim
-     * @param string $value
+     * @param mixed $value
      * @return self
      */
     public function with(string $claim, $value): self
@@ -333,7 +362,7 @@ class JsonToken
     /**
      * Return a new JsonToken instance with an array of changed claims.
      *
-     * @param array<string, string> $claims
+     * @param array<string, mixed> $claims
      * @return self
      */
     public function withClaims(array $claims): self
@@ -344,10 +373,10 @@ class JsonToken
     /**
      * Return a new JsonToken instance with a changed 'exp' claim.
      *
-     * @param \DateTimeInterface|null $time
+     * @param DateTimeInterface|null $time
      * @return self
      */
-    public function withExpiration(\DateTimeInterface $time = null): self
+    public function withExpiration(DateTimeInterface $time = null): self
     {
         return (clone $this)->setExpiration($time);
     }
@@ -379,10 +408,10 @@ class JsonToken
     /**
      * Return a new JsonToken instance with a changed 'iat' claim.
      *
-     * @param \DateTimeInterface|null $time
+     * @param DateTimeInterface|null $time
      * @return self
      */
-    public function withIssuedAt(\DateTimeInterface $time = null): self
+    public function withIssuedAt(DateTimeInterface $time = null): self
     {
         return (clone $this)->setIssuedAt($time);
     }
@@ -412,10 +441,10 @@ class JsonToken
     /**
      * Return a new JsonToken instance with a changed 'nbf' claim.
      *
-     * @param \DateTimeInterface|null $time
+     * @param DateTimeInterface|null $time
      * @return self
      */
-    public function withNotBefore(\DateTimeInterface $time = null): self
+    public function withNotBefore(DateTimeInterface $time = null): self
     {
         return (clone $this)->setNotBefore($time);
     }
