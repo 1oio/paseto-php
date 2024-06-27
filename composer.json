@@ -3,12 +3,6 @@
   "description": "Platform-Agnostic Security Tokens",
   "license": "ISC",
   "type": "library",
-  "authors": [
-    {
-      "name": "Paragon Initiative Enterprises",
-      "email": "security@paragonie.com"
-    }
-  ],
   "autoload": {
     "psr-4": {
       "ParagonIE\\Paseto\\": "src/"
