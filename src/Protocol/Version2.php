@@ -30,7 +30,7 @@ use ParagonIE\Paseto\Parsing\{
 };
 
 /**
- * Class Version1
+ * Class Version2
  * @package ParagonIE\Paseto\Protocol
  */
 class Version2 implements ProtocolInterface

@@ -11,7 +11,6 @@ use ParagonIE\Paseto\{
     ProtocolInterface
 };
 use ParagonIE\Paseto\Protocol\{
-    Version1,
     Version2
 };
 
@@ -59,7 +58,7 @@ class AsymmetricPublicKey implements ReceivingKey
      */
     public static function v1(string $keyMaterial): self
     {
-        return new self($keyMaterial, new Version1());
+        return new self($keyMaterial, new Version2());
     }
 
     /**

@@ -54,19 +54,6 @@ class ParserTest extends TestCase
             $this->assertInstanceOf(InvalidKeyException::class, $ex);
         }
 
-        // We have a v1.local parser, the token's version should be invalid:
-        $parser = new Parser(
-            ProtocolCollection::v1(),
-            Purpose::local(),
-            $badKey
-        );
-        try {
-            $parser->parse($badToken);
-            $this->fail('Invalid purpose was accepted by parser');
-        } catch (PasetoException $ex) {
-            $this->assertInstanceOf(InvalidVersionException::class, $ex);
-        }
-
         // We have a v2.public parser, the token's purpose should be invalid:
         $parser = new Parser(
             ProtocolCollection::v2(),

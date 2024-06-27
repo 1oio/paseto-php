@@ -4,7 +4,6 @@ namespace ParagonIE\Paseto;
 
 use ParagonIE\Paseto\Exception\SecurityException;
 use ParagonIE\Paseto\Protocol\{
-    Version1,
     Version2
 };
 use ParagonIE\Paseto\Exception\InvalidVersionException;
@@ -20,7 +19,6 @@ final class ProtocolCollection
      * @const array<int, class-string<ProtocolInterface>>
      */
     const WHITELIST = [
-        Version1::class,
         Version2::class,
     ];
 
@@ -135,7 +133,7 @@ final class ProtocolCollection
      */
     public static function v1(): self
     {
-        return new self(new Version1);
+        return new self(new Version2);
     }
 
     /**

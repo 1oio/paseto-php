@@ -8,7 +8,6 @@ use ParagonIE\Paseto\Exception\PasetoException;
 use ParagonIE\Paseto\Keys\Version2\AsymmetricPublicKey;
 use ParagonIE\Paseto\Keys\Version2\AsymmetricSecretKey;
 use ParagonIE\Paseto\Keys\Version2\SymmetricKey;
-use ParagonIE\Paseto\Protocol\Version1;
 use ParagonIE\Paseto\Protocol\Version2;
 use PHPUnit\Framework\TestCase;
 
@@ -87,18 +86,6 @@ class Version2Test extends TestCase
             } catch (PasetoException $ex) {
             }
         }
-
-        try {
-            Version1::encrypt('test', $key);
-            $this->fail('Invalid version accepted');
-        } catch (InvalidVersionException $ex) {
-        }
-        $encrypted = Version2::encrypt('test', $key);
-        try {
-            Version1::decrypt($encrypted, $key);
-            $this->fail('Invalid version accepted');
-        } catch (InvalidVersionException $ex) {
-        }
     }
 
     /**
@@ -143,18 +130,6 @@ class Version2Test extends TestCase
             $decode = Version2::verify($signed, $publicKey, 'footer');
             $this->assertIsStringType($decode);
             $this->assertSame($message, $decode);
-        }
-
-        try {
-            Version1::sign('test', $privateKey);
-            $this->fail('Invalid version accepted');
-        } catch (InvalidVersionException $ex) {
-        }
-        $signed = Version2::sign('test', $privateKey);
-        try {
-            Version1::verify($signed, $publicKey);
-            $this->fail('Invalid version accepted');
-        } catch (InvalidVersionException $ex) {
         }
     }
 

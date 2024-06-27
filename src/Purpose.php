@@ -7,11 +7,6 @@ use ParagonIE\Paseto\Keys\{
     AsymmetricPublicKey,
     SymmetricKey
 };
-use ParagonIE\Paseto\Keys\Version1\{
-    AsymmetricSecretKey as V1AsymmetricSecretKey,
-    AsymmetricPublicKey as V1AsymmetricPublicKey,
-    SymmetricKey as V1SymmetricKey
-};
 use ParagonIE\Paseto\Keys\Version2\{
     AsymmetricSecretKey as V2AsymmetricSecretKey,
     AsymmetricPublicKey as V2AsymmetricPublicKey,

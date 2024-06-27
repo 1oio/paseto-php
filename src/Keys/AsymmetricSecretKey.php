@@ -11,7 +11,6 @@ use ParagonIE\Paseto\{
     ProtocolInterface
 };
 use ParagonIE\Paseto\Protocol\{
-    Version1,
     Version2
 };
 
@@ -68,7 +67,7 @@ class AsymmetricSecretKey implements SendingKey
      */
     public static function v1(string $keyMaterial): self
     {
-        return new self($keyMaterial, new Version1());
+        return new self($keyMaterial, new Version2());
     }
 
     /**
@@ -92,13 +91,6 @@ class AsymmetricSecretKey implements SendingKey
     public static function generate(ProtocolInterface $protocol = null): self
     {
         $protocol = $protocol ?? new Version2;
-
-        if (\hash_equals($protocol::header(), Version1::HEADER)) {
-            $rsa = Version1::getRsa();
-            /** @var array<string, string> $keypair */
-            $keypair = $rsa->createKey(2048);
-            return new self($keypair['privatekey'], $protocol);
-        }
         return new self(
             \sodium_crypto_sign_secretkey(
                 \sodium_crypto_sign_keypair()
@@ -144,18 +136,10 @@ class AsymmetricSecretKey implements SendingKey
      */
     public function getPublicKey(): AsymmetricPublicKey
     {
-        switch ($this->protocol::header()) {
-            case Version1::HEADER:
-                return new AsymmetricPublicKey(
-                    Version1::RsaGetPublicKey($this->key),
-                    $this->protocol
-                );
-            default:
-                return new AsymmetricPublicKey(
-                    \sodium_crypto_sign_publickey_from_secretkey($this->key),
-                    $this->protocol
-                );
-        }
+        return new AsymmetricPublicKey(
+            \sodium_crypto_sign_publickey_from_secretkey($this->key),
+            $this->protocol
+        );
     }
 
     /**
